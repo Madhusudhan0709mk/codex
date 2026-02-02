@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: recruitment-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: web
+          image: recruitment-platform-web:latest
+          env:
+            - name: NEXT_PUBLIC_CANDIDATE_API
+              value: "http://candidate-profile:80"
+            - name: NEXT_PUBLIC_SEARCH_API
+              value: "http://recruiter-search:80"
+            - name: NEXT_PUBLIC_WORKFLOW_API
+              value: "http://recruiter-workflow:80"
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: recruitment-platform
+spec:
+  selector:
+    app: web
+  ports:
+    - port: 80
+      targetPort: 3000

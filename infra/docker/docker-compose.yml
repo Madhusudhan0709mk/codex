@@ -1,0 +1,161 @@
+version: "3.9"
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: bitnami/kafka:3.7
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    ports:
+      - "9092:9092"
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=platform
+      - POSTGRES_PASSWORD=platform
+      - POSTGRES_DB=platform
+    ports:
+      - "5432:5432"
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  opensearch:
+    image: opensearchproject/opensearch:2.15.0
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+
+  identity:
+    build: ../../services/identity
+    environment:
+      - SERVICE_NAME=identity
+      - PORT=8080
+    ports:
+      - "8081:8080"
+
+  candidate-profile:
+    build: ../../services/candidate-profile
+    environment:
+      - SERVICE_NAME=candidate-profile
+      - PORT=8080
+      - SEARCH_URL=http://recruiter-search:8080
+    ports:
+      - "8082:8080"
+
+  resume-parser:
+    build: ../../services/resume-parser
+    ports:
+      - "8083:8000"
+
+  recruiter-search:
+    build: ../../services/recruiter-search
+    environment:
+      - SERVICE_NAME=recruiter-search
+      - PORT=8080
+    ports:
+      - "8084:8080"
+
+  recruiter-workflow:
+    build: ../../services/recruiter-workflow
+    environment:
+      - SERVICE_NAME=recruiter-workflow
+      - PORT=8080
+      - CHAT_URL=http://chat:8080
+    ports:
+      - "8085:8080"
+
+  decision-engine:
+    build: ../../services/decision-engine
+    environment:
+      - SERVICE_NAME=decision-engine
+      - PORT=8080
+    ports:
+      - "8086:8080"
+
+  chat:
+    build: ../../services/chat
+    environment:
+      - SERVICE_NAME=chat
+      - PORT=8080
+    ports:
+      - "8087:8080"
+
+  verification:
+    build: ../../services/verification
+    environment:
+      - SERVICE_NAME=verification
+      - PORT=8080
+    ports:
+      - "8088:8080"
+
+  billing:
+    build: ../../services/billing
+    environment:
+      - SERVICE_NAME=billing
+      - PORT=8080
+    ports:
+      - "8089:8080"
+
+  placement-admin:
+    build: ../../services/placement-admin
+    environment:
+      - SERVICE_NAME=placement-admin
+      - PORT=8080
+    ports:
+      - "8090:8080"
+
+  analytics:
+    build: ../../services/analytics
+    environment:
+      - SERVICE_NAME=analytics
+      - PORT=8080
+    ports:
+      - "8091:8080"
+
+  audit-log:
+    build: ../../services/audit-log
+    environment:
+      - SERVICE_NAME=audit-log
+      - PORT=8080
+    ports:
+      - "8092:8080"
+
+  api-gateway:
+    build: ../../services/api-gateway
+    environment:
+      - SERVICE_NAME=api-gateway
+      - PORT=8080
+    ports:
+      - "8093:8080"
+
+  web:
+    build: ../../apps/web
+    environment:
+      - NEXT_PUBLIC_CANDIDATE_API=http://candidate-profile:8080
+      - NEXT_PUBLIC_SEARCH_API=http://recruiter-search:8080
+      - NEXT_PUBLIC_WORKFLOW_API=http://recruiter-workflow:8080
+    ports:
+      - "3000:3000"

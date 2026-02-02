@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light;
+  font-family: "Inter", system-ui, sans-serif;
+  background: #f7f8fb;
+  color: #101828;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  background: #ffffff;
+  padding: 20px 24px;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.08);
+  margin-bottom: 24px;
+}
+
+.app-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.app-subtitle {
+  margin: 4px 0 0;
+  color: #475467;
+}
+
+.app-nav {
+  display: flex;
+  gap: 16px;
+}
+
+.app-nav a {
+  color: #175cd3;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 18px;
+}
+
+.card form {
+  display: grid;
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  color: #475467;
+}
+
+input, select, textarea {
+  border: 1px solid #d0d5dd;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  background: #175cd3;
+  color: white;
+  cursor: pointer;
+}
+
+.secondary {
+  background: #12b76a;
+}
+
+.data-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.data-list li {
+  border: 1px solid #eaecf0;
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eff8ff;
+  color: #175cd3;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.footer-note {
+  font-size: 12px;
+  color: #667085;
+}

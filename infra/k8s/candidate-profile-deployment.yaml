@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: candidate-profile
+  namespace: recruitment-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: candidate-profile
+  template:
+    metadata:
+      labels:
+        app: candidate-profile
+    spec:
+      containers:
+        - name: candidate-profile
+          image: candidate-profile:latest
+          env:
+            - name: SERVICE_NAME
+              value: candidate-profile
+            - name: PORT
+              value: "8080"
+            - name: SEARCH_URL
+              value: "http://recruiter-search:80"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: candidate-profile
+  namespace: recruitment-platform
+spec:
+  selector:
+    app: candidate-profile
+  ports:
+    - port: 80
+      targetPort: 8080
