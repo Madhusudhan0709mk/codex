@@ -18,6 +18,9 @@ This repository provides a **build-ready implementation skeleton** for a scalabl
 - [Search & Recommendation Engine](#search--recommendation-engine)
 - [Auth & Security](#auth--security)
 - [Chat System](#chat-system)
+- [Scaling & Performance Strategy](#scaling--performance-strategy)
+- [Fault Tolerance & Resiliency](#fault-tolerance--resiliency)
+- [Caching Strategy](#caching-strategy)
 - [Docker Setup](#docker-setup)
 - [Kubernetes Setup](#kubernetes-setup)
 - [CI/CD Pipeline](#cicd-pipeline)
@@ -103,6 +106,7 @@ This is **not** a job-posting platform. It is a **candidate profile marketplace*
 - **AI Services**: Python (FastAPI), MLflow, Feast (Feature Store)
 - **Infra**: Docker, Kubernetes, Terraform
 - **Observability**: Prometheus, Grafana, OpenTelemetry, Loki
+- **Security**: OAuth2 / OIDC, JWT, Vault / KMS
 
 ---
 
@@ -149,18 +153,18 @@ Each service owns its **data store**, exposes APIs (REST external, gRPC internal
 
 | Service | Responsibility | API | Kafka Produce | Kafka Consume |
 |---------|----------------|-----|--------------|---------------|
-| Identity | AuthN/AuthZ, RBAC | REST/gRPC | `user.created` | `billing.subscription.updated` |
-| Candidate Profile | Profile CRUD, consent | REST/gRPC | `candidate.profile.updated` | `ai.profile.enriched` |
-| Resume Parser | Parse & extract | gRPC | `ai.profile.enriched` | `candidate.resume.uploaded` |
-| Verification | Interview-ready workflow | REST | `candidate.verification.status.changed` | `candidate.profile.updated` |
-| Recruiter Search | Search + filters | REST | `recruiter.search.executed` | `candidate.profile.updated` |
-| Decision Engine | Ranking + explainability | gRPC | `ai.match.score.generated` | `recruiter.search.executed` |
-| Recruiter Workflow | Shortlist + confirmation | REST | `recruiter.shortlist.created` | `candidate.consent.changed` |
-| Chat | Consent-based chat | REST/WebSocket | `chat.session.opened` | `recruiter.shortlist.created` |
-| Placement Admin | College dashboard | REST | `placement.status.updated` | `candidate.profile.updated` |
-| Billing | Plans + payments | REST | `billing.subscription.updated` | `user.created` |
-| Analytics | Reporting | REST | - | all topics (stream) |
-| Audit Log | Compliance logs | gRPC | - | all topics (stream) |
+| Identity | AuthN/AuthZ, RBAC, MFA, passwordless | REST/gRPC | `user.created` | `billing.subscription.updated` |
+| Candidate Profile | Profile CRUD, consent, completeness scoring | REST/gRPC | `candidate.profile.updated` | `ai.profile.enriched` |
+| Resume Parser | Parse & extract skills/experience | gRPC | `ai.profile.enriched` | `candidate.resume.uploaded` |
+| Verification | Interview-ready workflow, human review | REST | `candidate.verification.status.changed` | `candidate.profile.updated` |
+| Recruiter Search | Search + filters, ranking | REST | `recruiter.search.executed` | `candidate.profile.updated` |
+| Decision Engine | Ranking + explainability, bias monitoring | gRPC | `ai.match.score.generated` | `recruiter.search.executed` |
+| Recruiter Workflow | Shortlist + time-bound confirmation | REST | `recruiter.shortlist.created` | `candidate.consent.changed` |
+| Chat | Consent-based chat, audit trail | REST/WebSocket | `chat.session.opened` | `recruiter.shortlist.created` |
+| Placement Admin | College dashboard, student tracking | REST | `placement.status.updated` | `candidate.profile.updated` |
+| Billing | Plans + payments, invoices | REST | `billing.subscription.updated` | `user.created` |
+| Analytics | Reporting, KPI dashboards, funnel metrics | REST | - | all topics (stream) |
+| Audit Log | Compliance logs, access tracking | gRPC | - | all topics (stream) |
 
 ---
 
@@ -192,6 +196,13 @@ Each service owns its **data store**, exposes APIs (REST external, gRPC internal
 }
 ```
 
+### Event Flow Example
+1. Candidate uploads resume → `candidate.resume.uploaded`
+2. Resume Parsing Service consumes, extracts skills → `ai.profile.enriched`
+3. Profile Service updates completeness score → `candidate.profile.updated`
+4. Search Service re-indexes candidate in OpenSearch
+5. AI Scoring Service updates ranking features in Feature Store
+
 ### Retry & DLQ Strategy
 - **Retry topics**: `topic.retry.5s`, `topic.retry.1m`
 - **DLQ**: `topic.dlq`
@@ -206,65 +217,141 @@ Each service owns its **data store**, exposes APIs (REST external, gRPC internal
 - Cross-service data flow via **Kafka events**.
 
 ### SQL (Postgres)
-- `users`, `roles`, `permissions`
-- `candidates`, `recruiters`, `colleges`
-- `shortlists`, `interview_requests`, `consents`
-- `subscriptions`, `payments`, `invoices`
+- `users` (id, role, auth_provider_id)
+- `candidates` (id, user_id, readiness_status, completeness_score)
+- `candidate_profiles` (education, skills, experience, resume_url)
+- `recruiters` (id, company_id, plan_id)
+- `roles`, `permissions`
+- `shortlists` (id, recruiter_id, candidate_id, status, expires_at)
+- `interview_requests`, `consents` (candidate_id, recruiter_id, status)
+- `subscriptions` (user_id, plan_id, status, billing_cycle), `payments`, `invoices`
+- `audit_logs` (actor_id, action, entity, timestamp)
 
 ### NoSQL (MongoDB)
 - `candidate_profiles` (full profile JSON)
 - `resume_raw_data` (parsed output)
 - `ai_explanations`
+- `candidate_activity_logs`
+
+### Search / Vector
+- OpenSearch index: `candidate_profiles`
+- Vector DB: embeddings for semantic matching (pgvector / Pinecone)
 
 ### Indexing Strategy
 - Postgres: composite indexes on `(candidate_id, status)` and `(recruiter_id, status)`
 - MongoDB: text + hashed indexes on skills and college
+- OpenSearch: multi-field analysis for skills, experience
 
 ---
 
 ## AI System Implementation
 
+### Components
+1. **Resume Parsing** → Extract structured data from PDF/DOC
+2. **Skill Extraction** → Standardized taxonomy with confidence scoring
+3. **Candidate Matching** → Match vs recruiter-defined ideal profile
+4. **Ranking & Scoring** → Multi-factor score (hybrid approach)
+5. **Decision Explanation** → "Why selected" justification
+6. **Feedback Loop** → Recruiter outcomes feed retraining
+
 ### Resume Parsing Pipeline
 1. Resume upload event (`candidate.resume.uploaded`)
-2. Resume parser extracts skills/experience
-3. Emit `ai.profile.enriched`
-4. Candidate profile updated
+2. Resume parser extracts skills/experience using NLP
+3. Emit `ai.profile.enriched` with structured data
+4. Candidate profile updated with auto-filled fields
 
 ### Skill Extraction Logic
 - Normalization against a **skills taxonomy**
 - Confidence scoring on each extracted skill
+- Synonym mapping (e.g., "React.js" → "React")
 
 ### Matching & Ranking
 - **Hybrid scoring** = semantic similarity + structured filters
-- Weighted features: skills, experience, college, verification status
+- Weighted features: skills (40%), experience (30%), college (15%), verification status (15%)
+- Personalized ranking based on recruiter history
+
+### Feature Store
+- Stores derived features (skills, experience, success rates)
+- Decouples training from online inference
+- Low-latency feature serving for real-time scoring
+
+### Model Lifecycle
+- Offline training (batch + scheduled)
+- Online inference via API
+- Continuous evaluation & drift detection
+- A/B testing for new models
 
 ### Feedback Loop
-- Recruiter outcomes feed training dataset
+- Recruiter outcomes (shortlist, interview, hire) feed training dataset
 - Drift detection via metrics
+- Model retraining triggers
 
 ### Explainability
-- Store per-candidate explanation in `ai_explanations`
+- Store per-candidate explanation in `ai_explanations` collection
+- Provide reasoning: "Matched on skills: Go, Kafka; 5+ years experience"
+
+### Bias Monitoring
+- Fairness checks on protected attributes
+- Regular audits of ranking disparities
+- Dashboard for bias metrics
 
 ---
 
 ## Search & Recommendation Engine
-- OpenSearch for keyword filters
-- Vector DB for embeddings
-- Hybrid score = `0.6 * semantic + 0.4 * keyword`
+- **Keyword search** via OpenSearch with multi-field queries
+- **Semantic search** via Vector DB (embeddings)
+- **Hybrid scoring**: `0.6 * semantic_score + 0.4 * keyword_score`
+- Personalized ranking based on recruiter search history
+- Filters: skills, experience, location, verification status, college
 
 ---
 
 ## Auth & Security
-- OAuth2 + JWT
-- RBAC enforced at gateway + services
-- TLS everywhere, encrypted secrets
-- Audit logs for all critical actions
+- **OAuth2 / OIDC** with JWT tokens
+- **RBAC** enforced at gateway + service level
+- **MFA** and passwordless login options
+- **TLS everywhere**, encrypted secrets (Vault / KMS)
+- **Audit logs** for all critical actions
+- **PII data minimization** & masking
+- **Encryption at rest** for sensitive data
 
 ---
 
 ## Chat System
 - Chat **only opens after mutual confirmation**
 - Kafka event `chat.session.opened` triggers chat service
+- WebSocket for real-time messaging
+- Message audit trail for compliance
+- Consent revocation immediately closes chat
+
+---
+
+## Scaling & Performance Strategy
+- **Stateless services** scale horizontally with HPA
+- Kafka partitions scale throughput (partition by `candidate_id`)
+- Read-heavy endpoints cached via Redis (TTL-based)
+- Async processing for AI/ETL workflows (decouple compute)
+- Connection pooling for databases
+- gRPC for low-latency inter-service communication
+
+---
+
+## Fault Tolerance & Resiliency
+- **Retries + DLQ** for Kafka consumers (exponential backoff)
+- **Circuit breakers** on external APIs (prevent cascading failures)
+- **Multi-AZ database replication** for high availability
+- **Graceful degradation** for AI services (fallback to rule-based scoring)
+- Health checks and readiness probes in Kubernetes
+- Rate limiting to prevent abuse
+
+---
+
+## Caching Strategy
+- **Redis** for session tokens, profile caches
+- Search results cached with TTL (5-15 minutes)
+- AI inference responses cached short-term (1-5 minutes)
+- Cache invalidation on `candidate.profile.updated` events
+- Distributed caching for multi-region deployments
 
 ---
 
@@ -275,7 +362,7 @@ Each service has a Dockerfile. The Compose file under `infra/docker` runs Kafka,
 docker compose -f infra/docker/docker-compose.yml up --build
 ```
 
-Example Dockerfile:
+Example Dockerfile (Go service):
 ```dockerfile
 FROM golang:1.22-alpine AS builder
 WORKDIR /app
@@ -294,22 +381,44 @@ CMD ["./service"]
 - One Deployment + Service per microservice (see `infra/k8s/*-deployment.yaml`)
 - ConfigMaps for non-secret config
 - Secrets in K8s Secrets or Vault
-- HPA on CPU + latency
+- **HPA on CPU + latency** metrics
+- **Namespaces** per environment (dev, staging, prod)
+- **Helm charts** for templated deployments
+- **Ingress + API Gateway** for external traffic
+
+### Auto-Scaling Methods
+- **HPA**: Scale pods based on CPU/memory/custom metrics
+- **VPA**: Optimize resource requests/limits
+- **Cluster Autoscaler** for node pools
+
+### Deployment Patterns
+- **Blue-Green** for zero downtime
+- **Canary** for gradual rollout (10% → 50% → 100%)
 
 ---
 
 ## CI/CD Pipeline
-1. Lint + Unit tests
-2. Build + Scan Docker images
-3. Deploy to staging
-4. Canary deploy to production
+1. **Code push** triggers CI
+2. **Lint + Unit tests**
+3. **Build + Scan Docker images** (security scanning)
+4. **Deploy to staging** (Helm upgrade)
+5. **Integration tests** on staging
+6. **Canary deploy to production** (monitor metrics)
+7. **Full rollout** or rollback based on health
+
+### CI/CD Tools
+- GitHub Actions / GitLab CI / Jenkins
+- ArgoCD for GitOps
+- Helm for package management
 
 ---
 
 ## Observability
-- Logs: Loki
-- Metrics: Prometheus + Grafana
-- Tracing: OpenTelemetry + Jaeger
+- **Logs**: Loki (centralized logging)
+- **Metrics**: Prometheus + Grafana dashboards
+- **Tracing**: OpenTelemetry + Jaeger (distributed tracing)
+- **Alerting**: Prometheus Alertmanager (on-call alerts)
+- **SLOs**: Track latency, error rate, availability
 
 ---
 
@@ -332,16 +441,19 @@ Local endpoints:
 
 Sample API calls:
 ```bash
-curl -X POST http://localhost:8082/candidates \\
-  -H 'Content-Type: application/json' \\
+# Create candidate profile
+curl -X POST http://localhost:8082/candidates \
+  -H 'Content-Type: application/json' \
   -d '{"name":"Ada Lovelace","skills":["Go","Kafka"],"readiness_status":"verified"}'
 
-curl -X POST http://localhost:8084/index \\
-  -H 'Content-Type: application/json' \\
+# Index candidate in search
+curl -X POST http://localhost:8084/index \
+  -H 'Content-Type: application/json' \
   -d '{"id":"cand-1","name":"Ada Lovelace","skills":["Go","Kafka"],"readiness_status":"verified"}'
 
-curl -X POST http://localhost:8084/search \\
-  -H 'Content-Type: application/json' \\
+# Search candidates
+curl -X POST http://localhost:8084/search \
+  -H 'Content-Type: application/json' \
   -d '{"skills":["Kafka"],"readiness_status":"verified","minimum_score":1}'
 ```
 
@@ -357,6 +469,7 @@ Integration wiring:
    - Go
    - Docker
    - ESLint
+   - Kubernetes
 3. Clone the repo and open `/workspace/codex` in VS Code.
 4. Run the local stack from the integrated terminal:
    ```bash
@@ -376,6 +489,31 @@ kubectl apply -f infra/k8s/
 ---
 
 ## Future Roadmap
-- Bias & fairness dashboards
-- Multi-language resume parsing
-- HRIS/ATS integrations
+- **Bias & fairness dashboards** with real-time monitoring
+- **Multi-language resume parsing** (support 10+ languages)
+- **Candidate career path recommendations** (AI-driven)
+- **HRIS/ATS integrations** (Greenhouse, Lever, Workday)
+- **Mobile apps** (native iOS/Android)
+- **Advanced analytics** (predictive hiring success models)
+- **Blockchain-based verification** for credentials
+
+---
+
+## Deliverables Checklist
+- ✅ High-level architecture diagram
+- ✅ Microservices list & responsibilities
+- ✅ Kafka topics & event flow
+- ✅ Database design (SQL + NoSQL)
+- ✅ AI components architecture
+- ✅ Search & recommendation engine design
+- ✅ Scaling, fault tolerance, caching strategies
+- ✅ Security best practices (OAuth2, RBAC, TLS)
+- ✅ CI/CD pipeline design
+- ✅ Docker setup & local development guide
+- ✅ Kubernetes deployment & auto-scaling
+- ✅ Observability stack (logs, metrics, traces)
+- ✅ Future roadmap
+
+---
+
+**Platform is ready for implementation. Start with identity service, then candidate profile, then resume parser. Scale iteratively.**
